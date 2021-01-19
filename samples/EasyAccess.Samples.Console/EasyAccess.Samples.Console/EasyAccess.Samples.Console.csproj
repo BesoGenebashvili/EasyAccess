@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>netcoreapp3.1</TargetFramework>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Reference Include="EasyAccess">
+      <HintPath>..\..\..\src\EasyAccess\EasyAccess\bin\Release\netstandard2.1\EasyAccess.dll</HintPath>
+    </Reference>
+  </ItemGroup>
+
+</Project>

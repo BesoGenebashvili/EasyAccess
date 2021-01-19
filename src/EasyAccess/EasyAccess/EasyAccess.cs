@@ -38,30 +38,6 @@ namespace EasyAccess
 
     #endregion
 
-    #region Attributes.CustomTypes
-
-    [AttributeUsage(AttributeTargets.Property | AttributeTargets.Struct, AllowMultiple = false)]
-    public class TypeColumnAttribute : ColumnAttribute
-    {
-        public TypeColumnAttribute(SqlDbType sqlDbType, string name = null)
-            : base(sqlDbType, name)
-        {
-        }
-    }
-
-    [AttributeUsage(AttributeTargets.Class | AttributeTargets.Struct, AllowMultiple = false)]
-    public class ConvertorAttribute : Attribute
-    {
-        public ConvertorAttribute(Type of)
-        {
-            Of = of;
-        }
-
-        public Type Of { get; set; }
-    }
-
-    #endregion
-
     #region Data Helpers
 
     public class DataList<TData> : List<TData>, IList<TData>
@@ -288,6 +264,26 @@ namespace EasyAccess
     #endregion
 
     #region EasyAccess.CustomTypes
+
+    [AttributeUsage(AttributeTargets.Property | AttributeTargets.Struct, AllowMultiple = false)]
+    public class TypeColumnAttribute : ColumnAttribute
+    {
+        public TypeColumnAttribute(SqlDbType sqlDbType, string name = null)
+            : base(sqlDbType, name)
+        {
+        }
+    }
+
+    [AttributeUsage(AttributeTargets.Class | AttributeTargets.Struct, AllowMultiple = false)]
+    public class ConvertorAttribute : Attribute
+    {
+        public ConvertorAttribute(Type of)
+        {
+            Of = of;
+        }
+
+        public Type Of { get; set; }
+    }
 
     public interface IConvertor<TCustom, TPrimitive>
     {
