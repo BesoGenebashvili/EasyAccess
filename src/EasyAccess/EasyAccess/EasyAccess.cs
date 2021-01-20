@@ -59,6 +59,19 @@ namespace EasyAccess
             dataRecord.IsDBNull(columnIndex) ? default : (T)dataRecord.GetValue(columnIndex);
     }
 
+    internal static class DbConnectionExtensions
+    {
+        public static IDbConnection EnsureOpen(this IDbConnection connection)
+        {
+            if (connection.State == ConnectionState.Closed || connection.State == ConnectionState.Broken)
+            {
+                connection.Open();
+            }
+
+            return connection;
+        }
+    }
+
     #endregion
 
     public sealed class EasyAccess
@@ -74,14 +87,6 @@ namespace EasyAccess
             new EasyAccess(connectionString);
 
         #region Helpers
-
-        private void EnsureOpen(IDbConnection connection)
-        {
-            if (connection.State == ConnectionState.Closed || connection.State == ConnectionState.Broken)
-            {
-                connection.Open();
-            }
-        }
 
         private IEnumerable<(string columnName, object value, SqlDbType sqlDbType)> GetColumnNamesValuesAndTypesWithoutId<TData>(TData data) =>
             data.GetType()
@@ -106,7 +111,7 @@ namespace EasyAccess
         {
             using var connection = new SqlConnection(_connectionString);
             using var command = connection.CreateCommand();
-            EnsureOpen(connection);
+            connection.EnsureOpen();
 
             command.CommandText = $"SELECT * FROM {table} WHERE {condition}";
 
@@ -119,7 +124,7 @@ namespace EasyAccess
         {
             using var connection = new SqlConnection(_connectionString);
             using var command = connection.CreateCommand();
-            EnsureOpen(connection);
+            connection.EnsureOpen();
 
             var query = new StringBuilder()
                 .Append($"SELECT * FROM {table} ")
@@ -177,7 +182,7 @@ namespace EasyAccess
 
             using IDbConnection connection = new SqlConnection(_connectionString);
             using var command = connection.CreateCommand();
-            EnsureOpen(connection);
+            connection.EnsureOpen();
 
             var queryAndParameters = GetInsertQueryAndParameters(table, data);
             command.CommandText = queryAndParameters.query;
@@ -235,7 +240,7 @@ namespace EasyAccess
 
             using IDbConnection connection = new SqlConnection(_connectionString);
             using var command = connection.CreateCommand();
-            EnsureOpen(connection);
+            connection.EnsureOpen();
 
             var queryAndParameters = GetUpdateQueryAndParameters(table, data);
 
@@ -252,7 +257,7 @@ namespace EasyAccess
         {
             using IDbConnection connection = new SqlConnection(_connectionString);
             using var command = connection.CreateCommand();
-            EnsureOpen(connection);
+            connection.EnsureOpen();
 
             command.Parameters.Add(new SqlParameter("@Id", id));
             command.CommandText = $"DELETE FROM dbo.{table} WHERE Id = @Id";
@@ -467,6 +472,73 @@ namespace EasyAccess
             ColumnGreater<TModel>(string.Empty, propertyName, value);
         public static string ColumnGreater<TModel>(this string query, string propertyName, object value) =>
             query.InsertCondition<TModel>(propertyName, value, ">");
+    }
+
+    #endregion
+
+    #region EasyAccess.Creator
+
+    public static class Creator
+    {
+        private static bool IsNullable(Type type) =>
+            Nullable.GetUnderlyingType(type) != null;
+
+        private static IEnumerable<(string columnName, bool isNullable, SqlDbType sqlDbType)> GetDatabaseModelColumns<TModel>() =>
+            typeof(TModel)
+            .GetProperties(BindingFlags.Public | BindingFlags.Instance)
+            .Where(p => p.IsDefined(typeof(ColumnAttribute)))
+            .Select(p =>
+            {
+                var columnAttribute = p.GetCustomAttribute<ColumnAttribute>(true)
+                    ?? throw new Exception($"Property should be marked with '{nameof(ColumnAttribute)}'");
+
+                string columnName = columnAttribute.Name;
+
+                bool isNullable = IsNullable(p.PropertyType)
+                    || p.PropertyType.IsClass;
+
+                return (string.IsNullOrWhiteSpace(columnName) ? p.Name : columnName, isNullable, columnAttribute.SqlDbType);
+            });
+
+        public static void CreateTable<TModel>(string connection, string tableName = default)
+        {
+            static string GetTableName(string tableName) => string.IsNullOrWhiteSpace(tableName) ?
+                    $"{typeof(TModel).Name}s" : tableName;
+
+            static string GetSqlDbTypeSuffix(SqlDbType sqlDbType)
+            {
+                switch (sqlDbType)
+                {
+                    case SqlDbType.Binary:
+                    case SqlDbType.Char:
+                    case SqlDbType.NVarChar:
+                    case SqlDbType.VarBinary:
+                    case SqlDbType.VarChar:
+                        return " (MAX) ";
+                    default: return string.Empty;
+                };
+            }
+
+            static string GetCreateCommand(string tableName)
+            {
+                var modelColumns = GetDatabaseModelColumns<TModel>();
+
+                tableName = GetTableName(tableName);
+
+                return new StringBuilder()
+                     .Append($"CREATE TABLE {tableName}") // [IF NOT EXISTS]
+                     .Append(" ( " + string.Join(",", modelColumns.Select(m =>
+                     {
+                         return $"{m.columnName} {(m.sqlDbType)}{GetSqlDbTypeSuffix(m.sqlDbType)} " +
+                         $"{m switch { ("Id", _, _) => "IDENTITY (1, 1) NOT NULL", (_, true, _) => "NULL", (_, false, _) => "NOT NULL" }}";
+                     })) + $", CONSTRAINT [PK_{tableName}] PRIMARY KEY CLUSTERED ([Id] ASC));")
+                     .ToString();
+            }
+
+            using var command = new SqlConnection(connection).EnsureOpen().CreateCommand();
+            command.CommandText = GetCreateCommand(tableName);
+            command.ExecuteNonQuery();
+        }
     }
 
     #endregion
