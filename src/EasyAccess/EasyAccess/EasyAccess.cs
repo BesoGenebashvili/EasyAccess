@@ -13,16 +13,12 @@ namespace EasyAccess
     #region Attributes
 
     [AttributeUsage(AttributeTargets.Property, AllowMultiple = false)]
-    public class BaseAttribute : Attribute
-    {
-    }
+    public class BaseAttribute : Attribute { }
 
     public class ColumnAttribute : BaseAttribute
     {
-        public ColumnAttribute(SqlDbType sqlDbType, string name = default)
-        {
+        public ColumnAttribute(SqlDbType sqlDbType, string name = default) =>
             (SqlDbType, Name) = (sqlDbType, name);
-        }
 
         public string Name { get; set; }
         public SqlDbType SqlDbType { get; set; }
@@ -30,10 +26,7 @@ namespace EasyAccess
 
     public class IdColumnAttribute : ColumnAttribute
     {
-        public IdColumnAttribute()
-            : base(SqlDbType.Int, "Id")
-        {
-        }
+        public IdColumnAttribute() : base(SqlDbType.Int, "Id") { }
     }
 
     #endregion
@@ -78,32 +71,30 @@ namespace EasyAccess
     {
         private readonly string _connectionString;
 
-        public EasyAccess(string connectionString)
-        {
+        public EasyAccess(string connectionString) =>
             _connectionString = connectionString;
-        }
 
         public static EasyAccess Create(string connectionString) =>
             new EasyAccess(connectionString);
 
         #region Helpers
 
-        private IEnumerable<(string columnName, object value, SqlDbType sqlDbType)> GetColumnNamesValuesAndTypesWithoutId<TData>(TData data) =>
-            data.GetType()
-                .GetProperties(BindingFlags.Public | BindingFlags.Instance)
-                .Where(p => p.IsDefined(typeof(ColumnAttribute)) && !p.IsDefined(typeof(IdColumnAttribute)))
-                .Select(p =>
-                {
-                    var columnAttribute = p.GetCustomAttribute<ColumnAttribute>(true)
-                        ?? throw new Exception($"Property should be marked with '{nameof(ColumnAttribute)}'");
+        private IEnumerable<(string columnName, object value, SqlDbType sqlDbType)> GetColumnNamesValuesAndTypesWithoutId<TData>(TData data) => data
+            .GetType()
+            .GetProperties(BindingFlags.Public | BindingFlags.Instance)
+            .Where(p => p.IsDefined(typeof(ColumnAttribute)) && !p.IsDefined(typeof(IdColumnAttribute)))
+            .Select(p =>
+            {
+                var columnAttribute = p.GetCustomAttribute<ColumnAttribute>(true)
+                    ?? throw new Exception($"Property should be marked with '{nameof(ColumnAttribute)}'");
 
-                    var columnName = columnAttribute.Name;
+                var columnName = columnAttribute.Name;
 
-                    var value = p.IsDefined(typeof(TypeColumnAttribute), true) ?
-                        ConvertorHelper.GetPrimitiveFromCustom(p, p.GetValue(data)) : p.GetValue(data);
+                var value = p.IsDefined(typeof(TypeColumnAttribute), true) ?
+                    ConvertorHelper.GetPrimitiveFromCustom(p, p.GetValue(data)) : p.GetValue(data);
 
-                    return (string.IsNullOrWhiteSpace(columnName) ? p.Name : columnName, value, columnAttribute.SqlDbType);
-                });
+                return (string.IsNullOrWhiteSpace(columnName) ? p.Name : columnName, value, columnAttribute.SqlDbType);
+            });
 
         #endregion
 
@@ -126,12 +117,10 @@ namespace EasyAccess
             using var command = connection.CreateCommand();
             connection.EnsureOpen();
 
-            var query = new StringBuilder()
+            command.CommandText = new StringBuilder()
                 .Append($"SELECT * FROM {table} ")
                 .Append(!string.IsNullOrWhiteSpace(condition) ? $"WHERE {condition}" : string.Empty)
                 .ToString();
-
-            command.CommandText = query;
 
             var reader = command.ExecuteReader();
 
@@ -152,13 +141,12 @@ namespace EasyAccess
         {
             #region Prepare Parameters and Query
 
-            string BuildInsertQuery(string table, IEnumerable<string> columnNames, bool withId = true) =>
-                new StringBuilder()
-                    .Append($"INSERT INTO dbo.{table}")
-                    .Append($"({string.Join(",", columnNames)}) ")
-                    .Append($"VALUES({string.Join(",", columnNames.Select(c => $"@{c}"))})")
-                    .Append(withId ? " SELECT @Id = @@IDENTITY" : string.Empty)
-                    .ToString();
+            string BuildInsertQuery(string table, IEnumerable<string> columnNames, bool withId = true) => new StringBuilder()
+                .Append($"INSERT INTO dbo.{table}")
+                .Append($"({string.Join(",", columnNames)}) ")
+                .Append($"VALUES({string.Join(",", columnNames.Select(c => $"@{c}"))})")
+                .Append(withId ? " SELECT @Id = @@IDENTITY" : string.Empty)
+                .ToString();
 
             (string query, List<SqlParameter> parameters) GetInsertQueryAndParameters(string table, TData data)
             {
@@ -167,31 +155,30 @@ namespace EasyAccess
                 var query = BuildInsertQuery(table,
                     columnNamesValuesAndTypes.Select(t => t.columnName));
 
-                var sqlParameters = new List<SqlParameter>();
-
-                foreach (var columnNameValueAndType in columnNamesValuesAndTypes)
-                {
-                    sqlParameters.Add(new SqlParameter($"@{columnNameValueAndType.columnName}", columnNameValueAndType.value ?? DBNull.Value)
-                    { SqlDbType = columnNameValueAndType.sqlDbType });
-                }
+                var sqlParameters = columnNamesValuesAndTypes
+                    .Aggregate(new List<SqlParameter>(), (acc, item) =>
+                    {
+                        acc.Add(new SqlParameter($"@{item.columnName}", item.value ?? DBNull.Value) { SqlDbType = item.sqlDbType });
+                        return acc;
+                    });
 
                 return (query, sqlParameters);
             }
 
             #endregion
 
-            using IDbConnection connection = new SqlConnection(_connectionString);
+            using var connection = new SqlConnection(_connectionString);
             using var command = connection.CreateCommand();
             connection.EnsureOpen();
 
-            var queryAndParameters = GetInsertQueryAndParameters(table, data);
-            command.CommandText = queryAndParameters.query;
+            var (query, parameters) = GetInsertQueryAndParameters(table, data);
+            command.CommandText = query;
 
             var idParameter = new SqlParameter("@Id", SqlDbType.Int) { Direction = ParameterDirection.Output };
 
             command.Parameters.Add(idParameter);
 
-            queryAndParameters.parameters.ForEach(p => command.Parameters.Add(p));
+            parameters.ForEach(p => command.Parameters.Add(p));
 
             var rowsAffected = command.ExecuteNonQuery();
 
@@ -202,12 +189,11 @@ namespace EasyAccess
         {
             #region Prepare Parameters and Query / Helpers
 
-            string BuildUpdateQuery(string table, IEnumerable<string> columnNames) =>
-                new StringBuilder()
-                    .Append($"UPDATE dbo.{table} SET ")
-                    .Append($"{string.Join(",", columnNames.Select(c => $"{c} = @{c}"))} ")
-                    .Append("WHERE Id = @Id")
-                    .ToString();
+            string BuildUpdateQuery(string table, IEnumerable<string> columnNames) => new StringBuilder()
+                .Append($"UPDATE dbo.{table} SET ")
+                .Append($"{string.Join(",", columnNames.Select(c => $"{c} = @{c}"))} ")
+                .Append("WHERE Id = @Id")
+                .ToString();
 
             (string query, List<SqlParameter> parameters) GetUpdateQueryAndParameters(string table, TData data)
             {
@@ -216,37 +202,35 @@ namespace EasyAccess
                 var query = BuildUpdateQuery(table,
                     columnNamesValuesAndTypes.Select(t => t.columnName));
 
-                var sqlParameters = new List<SqlParameter>();
+                var sqlParameters = new List<SqlParameter>() { new SqlParameter("@Id", GetId(data)) };
 
-                sqlParameters.Add(new SqlParameter("@Id", GetId(data)));
-
-                foreach (var columnNameValueAndType in columnNamesValuesAndTypes)
-                {
-                    sqlParameters.Add(new SqlParameter($"@{columnNameValueAndType.columnName}", columnNameValueAndType.value ?? DBNull.Value)
-                    { SqlDbType = columnNameValueAndType.sqlDbType });
-                }
+                sqlParameters = columnNamesValuesAndTypes
+                    .Aggregate(sqlParameters, (acc, item) =>
+                    {
+                        acc.Add(new SqlParameter($"@{item.columnName}", item.value ?? DBNull.Value) { SqlDbType = item.sqlDbType });
+                        return acc;
+                    });
 
                 return (query, sqlParameters);
             }
 
-            object GetId(TData data) =>
-               data
-                   .GetType()
-                   .GetProperties()
-                   .FirstOrDefault(p => p.GetCustomAttribute<IdColumnAttribute>() is { })
-                   ?.GetValue(data);
+            object GetId(TData data) => data
+                .GetType()
+                .GetProperties()
+                .FirstOrDefault(p => p.GetCustomAttribute<IdColumnAttribute>() is { })
+                ?.GetValue(data);
 
             #endregion
 
-            using IDbConnection connection = new SqlConnection(_connectionString);
+            using var connection = new SqlConnection(_connectionString);
             using var command = connection.CreateCommand();
             connection.EnsureOpen();
 
-            var queryAndParameters = GetUpdateQueryAndParameters(table, data);
+            var (query, parameters) = GetUpdateQueryAndParameters(table, data);
 
-            command.CommandText = queryAndParameters.query;
+            command.CommandText = query;
 
-            queryAndParameters.parameters.ForEach(p => command.Parameters.Add(p));
+            parameters.ForEach(p => command.Parameters.Add(p));
 
             var rowsAffected = command.ExecuteNonQuery();
 
@@ -255,7 +239,7 @@ namespace EasyAccess
 
         public bool Delete(string table, int id)
         {
-            using IDbConnection connection = new SqlConnection(_connectionString);
+            using var connection = new SqlConnection(_connectionString);
             using var command = connection.CreateCommand();
             connection.EnsureOpen();
 
@@ -273,19 +257,14 @@ namespace EasyAccess
     [AttributeUsage(AttributeTargets.Property | AttributeTargets.Struct, AllowMultiple = false)]
     public class TypeColumnAttribute : ColumnAttribute
     {
-        public TypeColumnAttribute(SqlDbType sqlDbType, string name = null)
-            : base(sqlDbType, name)
-        {
-        }
+        public TypeColumnAttribute(SqlDbType sqlDbType, string name = null) : base(sqlDbType, name) { }
     }
 
     [AttributeUsage(AttributeTargets.Class | AttributeTargets.Struct, AllowMultiple = false)]
     public class ConvertorAttribute : Attribute
     {
-        public ConvertorAttribute(Type of)
-        {
+        public ConvertorAttribute(Type of) =>
             Of = of;
-        }
 
         public Type Of { get; set; }
     }
@@ -377,46 +356,33 @@ namespace EasyAccess
         public static TResult MapperOf<TResult>(IDataReader dataReader) where TResult : new()
         {
             var resultType = typeof(TResult);
+            var result = Activator.CreateInstance(resultType); // with constructor ?
 
-            var properties = resultType
+            resultType
                 .GetProperties()
-                .Where(p => p.GetCustomAttribute<ColumnAttribute>() is { });
-
-            var propertysAndColumnNames = properties
+                .Where(p => p.GetCustomAttribute<ColumnAttribute>() is { })
                 .Select(property =>
                 {
                     var columnName = property.GetCustomAttribute<ColumnAttribute>(true)?.Name;
 
-                    if (string.IsNullOrWhiteSpace(columnName))
+                    return (property, columnName: string.IsNullOrWhiteSpace(columnName) ? property.Name : columnName);
+                })
+                .ToList()
+                .ForEach(propertyAndColumnName =>
+                {
+                    var (property, columnName) = propertyAndColumnName;
+
+                    var dbValue = dataReader.GetValueOrDefault(columnName);
+
+                    if (property.GetCustomAttribute<TypeColumnAttribute>() is { })
                     {
-                        columnName = property.Name;
+                        property.SetValue(result, ConvertorHelper.GetCustomFromPrimitive(property, dbValue));
                     }
-
-                    return (property, columnName);
+                    else
+                    {
+                        property.SetValue(result, dbValue);
+                    }
                 });
-
-            var result = Activator.CreateInstance(resultType); // with constructor ?
-
-            foreach (var propertyAndColumnName in propertysAndColumnNames)
-            {
-                var dbValue = dataReader.GetValueOrDefault(propertyAndColumnName.columnName);
-
-                var i = propertyAndColumnName.property.PropertyType.GetCustomAttributes();
-
-                var typeColumnAttribute = propertyAndColumnName.property
-                    .GetCustomAttribute<TypeColumnAttribute>();
-
-                if (propertyAndColumnName.property
-                    .GetCustomAttribute<TypeColumnAttribute>() is { } attribute)
-                {
-                    propertyAndColumnName.property.SetValue(result,
-                        ConvertorHelper.GetCustomFromPrimitive(propertyAndColumnName.property, dbValue));
-                }
-                else
-                {
-                    propertyAndColumnName.property.SetValue(result, dbValue);
-                }
-            }
 
             return (TResult)result;
         }
@@ -437,21 +403,13 @@ namespace EasyAccess
             var columnAttribute = property.GetCustomAttribute<ColumnAttribute>(true)
                 ?? throw new Exception($"Property should be marked with '{nameof(ColumnAttribute)}'");
 
-            (string columnName, object value) result = (propertyName, value);
-
-            result.columnName = string.IsNullOrWhiteSpace(columnAttribute.Name) ?
-                propertyName : columnAttribute.Name;
-
-            result.value = columnAttribute is TypeColumnAttribute ?
-                ConvertorHelper.GetPrimitiveFromCustom(property, value) : value;
-
-            return result;
+            return (string.IsNullOrWhiteSpace(columnAttribute.Name) ? propertyName : columnAttribute.Name,
+                columnAttribute is TypeColumnAttribute ? ConvertorHelper.GetPrimitiveFromCustom(property, value) : value);
         }
 
         private static string InsertCondition<TModel>(this string query, string propertyName, object value, string condition)
         {
-            (string columnName, object finalValue)
-                = GetColumnNameAndValue<TModel>(propertyName, value);
+            var (columnName, finalValue) = GetColumnNameAndValue<TModel>(propertyName, value);
 
             return $"{query}{columnName} {condition} {IfStringUseApostroph(finalValue)} ";
 
@@ -483,8 +441,7 @@ namespace EasyAccess
         private static bool IsNullable(Type type) =>
             Nullable.GetUnderlyingType(type) != null;
 
-        private static IEnumerable<(string columnName, bool isNullable, SqlDbType sqlDbType)> GetDatabaseModelColumns<TModel>() =>
-            typeof(TModel)
+        private static IEnumerable<(string columnName, bool isNullable, SqlDbType sqlDbType)> GetDatabaseModelColumns<TModel>() => typeof(TModel)
             .GetProperties(BindingFlags.Public | BindingFlags.Instance)
             .Where(p => p.IsDefined(typeof(ColumnAttribute)))
             .Select(p =>
@@ -492,18 +449,18 @@ namespace EasyAccess
                 var columnAttribute = p.GetCustomAttribute<ColumnAttribute>(true)
                     ?? throw new Exception($"Property should be marked with '{nameof(ColumnAttribute)}'");
 
-                string columnName = columnAttribute.Name;
+                var columnName = columnAttribute.Name;
 
-                bool isNullable = IsNullable(p.PropertyType)
-                    || p.PropertyType.IsClass;
+                var isNullable = IsNullable(p.PropertyType) || p.PropertyType.IsClass;
 
                 return (string.IsNullOrWhiteSpace(columnName) ? p.Name : columnName, isNullable, columnAttribute.SqlDbType);
             });
 
         public static void CreateTable<TModel>(string connection, string tableName = default)
         {
-            static string GetTableName(string tableName) => string.IsNullOrWhiteSpace(tableName) ?
-                    $"{typeof(TModel).Name}s" : tableName;
+            static string GetTableName(string tableName) => string.IsNullOrWhiteSpace(tableName)
+                ? $"{typeof(TModel).Name}s"
+                : tableName;
 
             static string GetSqlDbTypeSuffix(SqlDbType sqlDbType)
             {
@@ -519,24 +476,20 @@ namespace EasyAccess
                 };
             }
 
-            static string GetCreateCommand(string tableName)
-            {
-                var modelColumns = GetDatabaseModelColumns<TModel>();
-
-                tableName = GetTableName(tableName);
-
-                return new StringBuilder()
-                     .Append($"CREATE TABLE {tableName}") // [IF NOT EXISTS]
-                     .Append(" ( " + string.Join(",", modelColumns.Select(m =>
-                     {
-                         return $"{m.columnName} {(m.sqlDbType)}{GetSqlDbTypeSuffix(m.sqlDbType)} " +
-                         $"{m switch { ("Id", _, _) => "IDENTITY (1, 1) NOT NULL", (_, true, _) => "NULL", (_, false, _) => "NOT NULL" }}";
-                     })) + $", CONSTRAINT [PK_{tableName}] PRIMARY KEY CLUSTERED ([Id] ASC));")
-                     .ToString();
-            }
+            static string GetCreateCommand(string tableName) => new StringBuilder()
+                .Append($"CREATE TABLE {tableName}") // [IF NOT EXISTS]
+                .Append(" ( " + string.Join(",", GetDatabaseModelColumns<TModel>().Select(m =>
+                {
+                    return $"{m.columnName} {(m.sqlDbType)}{GetSqlDbTypeSuffix(m.sqlDbType)} " +
+                    $"{m switch { ("Id", _, _) => "IDENTITY (1, 1) NOT NULL", (_, true, _) => "NULL", (_, false, _) => "NOT NULL" }}";
+                })) + $", CONSTRAINT [PK_{tableName}] PRIMARY KEY CLUSTERED ([Id] ASC));")
+                .ToString();
 
             using var command = new SqlConnection(connection).EnsureOpen().CreateCommand();
-            command.CommandText = GetCreateCommand(tableName);
+
+            command.CommandText = GetCreateCommand(
+                GetTableName(tableName));
+
             command.ExecuteNonQuery();
         }
     }
